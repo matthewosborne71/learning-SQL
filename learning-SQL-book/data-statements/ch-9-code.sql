@@ -8,7 +8,78 @@ USE sakila;
 -- Subqueries are just executing a SELECT on the table resulting from another SELECT
 -- in various forms.
 
+-- Just practicing...
 
+-- should return the customer info for the highest
+-- customer_id rental
+SELECT customer_id, first_name, last_name
+  FROM customer
+  WHERE customer_id IN (SELECT MAX(customer_id) FROM rental);
+
+-- this returns the name of customers who were given what I am
+-- deeming as "free rentals" and counts how many such rentals they received.
+-- Here I'm calling a free rental any instance of a payment of 0 for that
+-- customer.
+SELECT first_name, last_name, fr.free_rentals
+  FROM customer c
+  INNER JOIN (SELECT customer_id, COUNT(*) free_rentals
+    FROM (SELECT customer_id
+          FROM payment
+          WHERE amount=0) t
+    GROUP BY customer_id) fr
+  ON c.customer_id = fr.customer_id;
+
+-- count the number of film rentals for each customer that had exactly 20 films
+-- seems silly, but this was an example in the book I'm trying to recreate from
+-- scratch without using a correlated subquery
+SELECT c.customer_id, c.first_name, c.last_name, t.num_rentals
+  FROM customer c
+  INNER JOIN (SELECT customer_id, COUNT(*) num_rentals
+                FROM rental
+                GROUP BY customer_id
+                HAVING num_rentals = 20) t
+  ON c.customer_id = t.customer_id;
+
+-- okay, let's try to recreate the way to do it with a correlated subquery
+-- did some searching online that suggests they are the fastest way to do some
+-- things
+SELECT c.customer_id, c.first_name, c.last_name
+  FROM customer c
+  WHERE 20 = (SELECT COUNT(*)
+                FROM rental r
+                WHERE r.customer_id = c.customer_id);
+
+-- we can try to copy this to get the actors who appear in 20 films
+SELECT a.actor_id, a.first_name, a.last_name
+  FROM actor a
+  WHERE 20 > (SELECT COUNT(*)
+                FROM film_actor fa
+                WHERE a.actor_id = fa.actor_id);
+
+SELECT a.first_name, a.last_name
+  FROM actor a
+  WHERE EXISTS (SELECT 1 FROM film_actor fa
+                WHERE fa.actor_id = a.actor_id
+                  AND date(fa.last_update) > '2006-01-01');
+
+
+-- Trying to recreate an example on rental amounts from scratch
+-- Small Fry 0 74.99
+-- Average Joes 75 149.99
+-- Heavy Hitters 150 9999999.99
+SELECT c.first_name, c.last_name, grps.level
+  FROM customer c
+  INNER JOIN (SELECT p.customer_id, SUM(p.amount) total_pay
+                FROM payment p
+                GROUP BY customer_id) t
+  ON c.customer_id = t.customer_id
+  INNER JOIN
+  (SELECT 'Heavy Hitters' level, 150 min_pay, 9999999.99 max_pay
+    UNION ALL
+    SELECT 'Average Joes' level, 75 min_pay, 149.99 max_pay
+    UNION ALL
+    SELECT 'Small Fry' level, 1 min_pay, 74.99 max_pay) grps
+  ON t.total_pay BETWEEN grps.min_pay AND grps.max_pay;
 
 -- EXERCISES IN "TEST YOUR KNOWLEDGE" AT THE END OF THE CHAPTER --
 -------------------------------------------
@@ -100,3 +171,50 @@ FROM
 -- Yes! But you get repeats based on every possible match that can be made.
 -- For example, in the code above, if someone is a 'Hollywood Star' they are
 -- also in the table as a 'Prolific Actor' and a 'Newcomer'
+
+
+
+
+-- RETRYING the exercises at the end of the chapter. This time I'm not allowed
+-- to peak!
+-- Exercise 9-1
+------------
+-- ANSWER --
+SELECT f.film_id, f.title
+  FROM film f
+  WHERE f.film_id IN (SELECT fc.film_id
+                        FROM film_category fc
+                        WHERE fc.category_id = (SELECT c.category_id
+                                                FROM category c
+                                                WHERE name = 'ACTION'));
+
+
+-- Exercise 9-2
+------------
+-- ANSWER --
+SELECT f.film_id, f.title
+  FROM film f
+  WHERE EXISTS (SELECT 1 FROM (SELECT fc.film_id
+                                FROM film_category fc
+                                WHERE fc.category_id = (SELECT c.category_id
+                                                        FROM category c
+                                                        WHERE name = 'ACTION')) g
+                WHERE f.film_id = g.film_id);
+
+
+
+-- Exercise 9-3
+--------------
+-- ANSWER --
+SELECT a.actor_id, a.first_name, a.last_name, grps.level
+  FROM actor a
+  INNER JOIN (SELECT fa.actor_id, COUNT(*) num_roles
+                FROM film_actor fa
+                GROUP BY fa.actor_id) nr
+  ON a.actor_id = nr.actor_id
+  INNER JOIN (SELECT 'Hollywood Star' level, 30 min_roles, 99999 max_roles
+    UNION ALL
+    SELECT 'Prolific Actor' level, 20 min_roles, 29 max_roles
+    UNION ALL
+    SELECT 'Newcomer' level, 1 min_roles, 19 max_roles) grps
+  ON nr.num_roles BETWEEN grps.min_roles AND grps.max_roles;
